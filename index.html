@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MPD Downloader</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #e0e0e0; padding: 2rem; min-height: 100vh; }
+  h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 1.5rem; color: #fff; }
+  .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; padding: 1.5rem; margin-bottom: 1.2rem; }
+  label { display: block; font-size: 0.82rem; color: #888; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  input[type="text"], select, textarea {
+    width: 100%; background: #111; border: 1px solid #333; border-radius: 6px;
+    color: #e0e0e0; padding: 0.6rem 0.8rem; font-size: 0.9rem; font-family: inherit;
+    outline: none; transition: border-color 0.15s;
+  }
+  input[type="text"]:focus, select:focus, textarea:focus { border-color: #555; }
+  select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.7rem center; padding-right: 2rem; }
+  select:disabled { color: #555; cursor: not-allowed; }
+  textarea { resize: vertical; font-family: monospace; font-size: 0.8rem; }
+  .row { display: flex; gap: 0.8rem; align-items: flex-start; flex-wrap: wrap; }
+  .or { color: #444; font-size: 0.85rem; align-self: center; padding-top: 1.2rem; }
+  .col { display: flex; flex-direction: column; gap: 0.8rem; flex: 1; min-width: 200px; }
+  .file-drop {
+    border: 1px dashed #333; border-radius: 6px; padding: 0.8rem; text-align: center;
+    color: #555; font-size: 0.85rem; cursor: pointer; transition: border-color 0.15s, color 0.15s;
+    background: #111;
+  }
+  .file-drop:hover, .file-drop.drag { border-color: #2563eb; color: #2563eb; }
+  .file-drop input { display: none; }
+  button {
+    background: #2563eb; color: #fff; border: none; border-radius: 6px;
+    padding: 0.65rem 1.4rem; font-size: 0.9rem; cursor: pointer; font-family: inherit;
+    transition: background 0.15s; white-space: nowrap;
+  }
+  button:hover { background: #1d4ed8; }
+  button:disabled { background: #333; color: #666; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 0.8rem; margin-top: 1rem; flex-wrap: wrap; align-items: center; }
+  #status { font-size: 0.85rem; color: #888; }
+  .progress-wrap { background: #111; border-radius: 4px; height: 6px; overflow: hidden; margin-top: 0.8rem; }
+  .progress-bar { height: 100%; background: #2563eb; width: 0%; transition: width 0.2s; }
+  #log { max-height: 220px; overflow-y: auto; font-family: monospace; font-size: 0.78rem; color: #666; margin-top: 0.8rem; line-height: 1.6; }
+  #log .err { color: #f87171; }
+  #log .ok { color: #4ade80; }
+  #log .cmd { color: #fbbf24; background: #1f1a0a; border-radius: 4px; padding: 0.15rem 0.4rem; margin-top: 0.3rem; user-select: all; }
+
+  /* More options */
+  .more-toggle {
+    background: none; color: #555; border: none; padding: 0.5rem 0; font-size: 0.82rem;
+    cursor: pointer; display: flex; align-items: center; gap: 0.4rem; margin-top: 0.8rem;
+    transition: color 0.15s;
+  }
+  .more-toggle:hover { background: none; color: #aaa; }
+  .more-toggle .arrow { display: inline-block; transition: transform 0.2s; font-size: 0.7rem; }
+  .more-toggle.open .arrow { transform: rotate(90deg); }
+  .more-body {
+    overflow: hidden; max-height: 0;
+    transition: max-height 0.3s ease, opacity 0.2s ease;
+    opacity: 0;
+  }
+  .more-body.open { max-height: 800px; opacity: 1; }
+  .more-inner { display: flex; flex-direction: column; gap: 1rem; padding-top: 1rem; border-top: 1px solid #222; margin-top: 0.5rem; }
+  .section-heading { font-size: 0.78rem; color: #555; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.6rem; }
+  .stream-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.8rem; }
+  .hint { font-size: 0.82rem; color: #444; font-style: italic; }
+  .check-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #888; cursor: pointer; }
+  .check-label input[type="checkbox"] { width: auto; accent-color: #2563eb; }
+</style>
+</head>
+<body>
+<h1>MPD Downloader</h1>
+
+<div class="card">
+  <div class="row">
+    <div class="col">
+      <div>
+        <label>MPD URL</label>
+        <input type="text" id="mpdUrl" placeholder="https://example.com/manifest.mpd" />
+      </div>
+      <div>
+        <label>Local MPD file</label>
+        <div class="file-drop" id="fileDrop">
+          <input type="file" id="fileInput" accept=".mpd,.xml" />
+          <span id="fileLabel">Drop file here or click to browse</span>
+        </div>
+      </div>
+    </div>
+    <div class="or">or</div>
+    <div class="col">
+      <div>
+        <label>Paste MPD XML</label>
+        <textarea id="mpdXml" placeholder="<?xml version=&quot;1.0&quot; ..." style="height:140px"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:0.8rem">
+    <label>Output filename</label>
+    <input type="text" id="filename" placeholder="output" />
+  </div>
+
+  <!-- More options toggle -->
+  <button class="more-toggle" id="btnMore"><span class="arrow">▶</span> More options</button>
+
+  <div class="more-body" id="moreBody">
+    <div class="more-inner">
+
+      <!-- Stream selection -->
+      <div>
+        <div class="section-heading">Stream selection</div>
+        <div class="stream-grid" id="streamSelectors">
+          <p class="hint">Parse the MPD first to see available streams.</p>
+        </div>
+      </div>
+
+      <!-- Subtitle URL -->
+      <div>
+        <label>Subtitle URL (external .vtt / .srt / .ttml)</label>
+        <input type="text" id="subtitleUrl" placeholder="https://example.com/subtitles.vtt" />
+      </div>
+
+      <!-- CORS proxy -->
+      <div>
+        <label>CORS proxy prefix</label>
+        <input type="text" id="corsProxy" placeholder="http://localhost:8079/  or  https://your-app.vercel.app/api/proxy?url=" />
+        <p style="font-size:0.78rem;color:#444;margin-top:0.4rem;line-height:1.7">
+          If downloads fail with a CORS error, the remote server is blocking browser requests.
+          Two ways to fix it:<br><br>
+          <b style="color:#666">Locally:</b> run <code style="color:#666">node proxy.js</code> in a terminal, then paste
+          <code style="color:#555">http://localhost:8079/</code> above.<br><br>
+          <b style="color:#666">Deployed (e.g. on Vercel):</b> if this app and <code style="color:#666">api/proxy.js</code>
+          are deployed together, paste <code style="color:#555">https://your-app.vercel.app/api/proxy?url=</code> above
+          — works from any device, no terminal needed.<br><br>
+          <span style="color:#3a3a3a">Alternatively, install a browser extension that disables CORS checks:
+          <em>CORS Everywhere</em> for Firefox or <em>Allow CORS</em> for Chrome — then you don't need the proxy field at all.</span>
+        </p>
+      </div>
+
+      <!-- Request headers -->
+      <div>
+        <label>Request headers</label>
+        <textarea id="headersInput" style="height:80px" placeholder='JSON:  {"Authorization": "Bearer xxx", "Cookie": "abc=def"}
+curl:  -H "Authorization: Bearer xxx" -H "Cookie: abc=def"'></textarea>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button id="btnFetch">Fetch &amp; Parse MPD</button>
+    <button id="btnDownload" disabled>Download segments</button>
+    <span id="status"></span>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap" style="display:none">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+  <div id="log"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+let parsedAdaptSets = [];
+
+// ── File drop ──────────────────────────────────────────────────────────────
+const fileDrop = $('fileDrop');
+const fileInput = $('fileInput');
+fileDrop.addEventListener('click', () => fileInput.click());
+fileDrop.addEventListener('dragover', e => { e.preventDefault(); fileDrop.classList.add('drag'); });
+fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('drag'));
+fileDrop.addEventListener('drop', e => {
+  e.preventDefault(); fileDrop.classList.remove('drag');
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) loadFile(fileInput.files[0]); });
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    $('mpdXml').value = e.target.result;
+    $('fileLabel').textContent = file.name;
+    if (!$('filename').value.trim()) $('filename').value = file.name.replace(/\.mpd$/i, '');
+  };
+  reader.readAsText(file);
+}
+
+// ── More options toggle ────────────────────────────────────────────────────
+$('btnMore').addEventListener('click', () => {
+  const open = $('moreBody').classList.toggle('open');
+  $('btnMore').classList.toggle('open', open);
+});
+
+// ── Logging / status ───────────────────────────────────────────────────────
+function log(msg, cls) {
+  const d = $('log');
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  d.appendChild(line);
+  d.scrollTop = d.scrollHeight;
+}
+function status(msg) { $('status').textContent = msg; }
+
+// ── Headers parsing ────────────────────────────────────────────────────────
+function parseHeaders(str) {
+  str = (str || '').trim();
+  if (!str) return {};
+  if (str.startsWith('{')) { try { return JSON.parse(str); } catch (_) {} }
+  // curl -H "Name: value" format
+  const headers = {};
+  const re = /-H\s+["']([^"']+)["']/g;
+  let m;
+  while ((m = re.exec(str)) !== null) {
+    const colon = m[1].indexOf(':');
+    if (colon > 0) headers[m[1].slice(0, colon).trim()] = m[1].slice(colon + 1).trim();
+  }
+  return headers;
+}
+
+function fetchWithHeaders(url, extraHeaders = {}) {
+  const proxy = $('corsProxy')?.value.trim() || '';
+  // Vercel-style proxy (query param) vs. plain-prefix local proxy (proxy.js)
+  const finalUrl = !proxy ? url
+    : proxy.includes('?') ? proxy + encodeURIComponent(url)
+    : proxy.endsWith('=') ? proxy + encodeURIComponent(url)
+    : proxy + url;
+  return fetch(finalUrl, Object.keys(extraHeaders).length ? { headers: extraHeaders } : undefined);
+}
+
+function isCorsError(e) {
+  // CORS failures surface as TypeError with no useful message in most browsers
+  return e instanceof TypeError && (e.message === 'Failed to fetch' || e.message === 'NetworkError when attempting to fetch resource.' || e.message.toLowerCase().includes('cors') || e.message.toLowerCase().includes('network'));
+}
+
+// ── MPD parsing ────────────────────────────────────────────────────────────
+function parseAllTracks(xmlText, mpdBaseUrl) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, 'application/xml');
+  const err = doc.querySelector('parsererror');
+  if (err) throw new Error('XML parse error: ' + err.textContent.slice(0, 120));
+
+  // BaseURL element takes precedence; fall back to URL-derived base; then Title heuristic
+  const baseUrlEl = doc.querySelector('MPD > BaseURL, MPD > Period > BaseURL');
+  let base = baseUrlEl?.textContent?.trim() || '';
+  if (!base) {
+    base = mpdBaseUrl || '';
+    if (base) base = base.includes('/') ? base.slice(0, base.lastIndexOf('/') + 1) : base + '/';
+  }
+  if (!base) {
+    // CRO: <Title> contains e.g. "e8/ef/{uuid}.m4a" — derive https://croaod.cz/stream/{uuid}.m4a/
+    const title = doc.querySelector('ProgramInformation > Title')?.textContent?.trim() || '';
+    const croMatch = title.match(/([a-f0-9-]{36}\.m4[av])\s*$/i);
+    if (croMatch) base = `https://croaod.cz/stream/${croMatch[1]}/`;
+  }
+
+  const totalDur = parseDuration(doc.querySelector('MPD')?.getAttribute('mediaPresentationDuration') || '');
+  const results = [];
+
+  doc.querySelectorAll('AdaptationSet').forEach((adaptEl, adaptIdx) => {
+    const mimeType = adaptEl.getAttribute('mimeType') || adaptEl.getAttribute('contentType') || '';
+    const lang = adaptEl.getAttribute('lang') || '';
+    const type = mimeType.startsWith('video') ? 'video'
+               : mimeType.startsWith('audio') ? 'audio'
+               : (mimeType.startsWith('text') || mimeType.includes('ttml') || mimeType.includes('vtt')) ? 'text'
+               : 'other';
+
+    const tmplEl = adaptEl.querySelector('SegmentTemplate')
+      || adaptEl.closest('Period')?.querySelector('SegmentTemplate');
+    if (!tmplEl) return;
+
+    const initTmpl  = tmplEl.getAttribute('initialization');
+    const mediaTmpl = tmplEl.getAttribute('media');
+    const timescale = parseInt(tmplEl.getAttribute('timescale') || '1', 10);
+
+    const tlEl = tmplEl.querySelector('SegmentTimeline');
+    const timeline = tlEl ? [...tlEl.querySelectorAll('S')].map(s => ({
+      t: s.getAttribute('t') !== null ? parseInt(s.getAttribute('t'), 10) : null,
+      d: parseInt(s.getAttribute('d'), 10),
+      r: parseInt(s.getAttribute('r') || '0', 10),
+    })) : null;
+
+    const numberDuration = timeline ? 0 : parseFloat(tmplEl.getAttribute('duration') || '0');
+    const startNumber    = timeline ? 1 : parseInt(tmplEl.getAttribute('startNumber') || '1', 10);
+
+    const representations = [...adaptEl.querySelectorAll('Representation')].map(rep => {
+      const bw = parseInt(rep.getAttribute('bandwidth') || '0', 10);
+      const h  = rep.getAttribute('height');
+      let label = '';
+      if (type === 'video')      label = `${h ? h + 'p · ' : ''}${(bw / 1000).toFixed(0)} kbps`;
+      else if (type === 'audio') label = `${lang ? lang + ' · ' : ''}${(bw / 1000).toFixed(0)} kbps`;
+      else                       label = lang || rep.getAttribute('id') || `track ${adaptIdx}`;
+      return { id: rep.getAttribute('id'), bandwidth: bw, height: h ? parseInt(h) : null, codecs: rep.getAttribute('codecs') || '', label };
+    });
+
+    if (representations.length) {
+      results.push({ idx: adaptIdx, type, mimeType, lang, base, initTmpl, mediaTmpl, timescale, timeline, numberDuration, startNumber, totalDur, representations });
+    }
+  });
+
+  return results;
+}
+
+function buildSegments(adaptSet, repId) {
+  const rep = adaptSet.representations.find(r => r.id === repId) || adaptSet.representations[0];
+  const resolve = tpl => adaptSet.base + tpl
+    .replace(/\$RepresentationID\$/g, rep.id)
+    .replace(/\$Bandwidth\$/g, rep.bandwidth);
+
+  // Handles $Number$, $Number%06d$, $Time$, $Time%d$, etc.
+  const applyNumber = (url, n) => url.replace(/\$Number(%0*(\d+)d)?\$/g, (_, fmt, width) =>
+    width ? String(n).padStart(parseInt(width), '0') : String(n));
+  const applyTime = (url, t) => url.replace(/\$Time(%[^$]*)?\$/g, (_, fmt) => String(t));
+
+  const segments = [];
+  if (adaptSet.initTmpl) segments.push({ url: resolve(adaptSet.initTmpl), label: 'init' });
+
+  if (adaptSet.timeline && adaptSet.mediaTmpl) {
+    let t = 0, si = 0;
+    for (const s of adaptSet.timeline) {
+      if (s.t !== null) t = s.t;
+      for (let i = 0; i <= s.r; i++) {
+        segments.push({ url: applyTime(applyNumber(resolve(adaptSet.mediaTmpl), si), t), label: `seg_${si}_t${t}` });
+        t += s.d; si++;
+      }
+    }
+  } else if (adaptSet.mediaTmpl?.includes('$Number$')) {
+    const count = adaptSet.numberDuration > 0 && adaptSet.totalDur > 0
+      ? Math.ceil(adaptSet.totalDur * adaptSet.timescale / adaptSet.numberDuration) : 0;
+    for (let i = 0; i < count; i++) {
+      const n = adaptSet.startNumber + i;
+      segments.push({ url: applyTime(applyNumber(resolve(adaptSet.mediaTmpl), n), i * adaptSet.numberDuration), label: `seg_${n}` });
+    }
+  }
+  return segments;
+}
+
+function bestRepId(adaptSet) {
+  return adaptSet.representations.reduce((a, b) => b.bandwidth > a.bandwidth ? b : a).id;
+}
+
+function defaultAudioAdaptIdx(audioSets) {
+  const pref = ['cs', 'ces', 'cze', 'en', 'eng'];
+  for (const p of pref) {
+    const found = audioSets.find(a => a.lang.toLowerCase().startsWith(p));
+    if (found) return found.idx;
+  }
+  return audioSets[0].idx;
+}
+
+// ── Stream selector UI ─────────────────────────────────────────────────────
+function populateStreamSelectors() {
+  const container = $('streamSelectors');
+  if (!parsedAdaptSets.length) {
+    container.innerHTML = '<p class="hint">Parse the MPD first to see available streams.</p>';
+    return;
+  }
+
+  container.innerHTML = '';
+
+  const videoSets = parsedAdaptSets.filter(a => a.type === 'video');
+  const audioSets = parsedAdaptSets.filter(a => a.type === 'audio');
+  const textSets  = parsedAdaptSets.filter(a => a.type === 'text');
+
+  // Video quality — one dropdown per video AdaptationSet (usually just one)
+  videoSets.forEach(adaptSet => {
+    const wrap = document.createElement('div');
+    const sorted = [...adaptSet.representations].sort((a, b) => b.bandwidth - a.bandwidth);
+    const best = bestRepId(adaptSet);
+    wrap.innerHTML = `<label>Video quality</label>
+      <select id="selVideo_${adaptSet.idx}">
+        ${sorted.map(r => `<option value="${r.id}"${r.id === best ? ' selected' : ''}>${r.label}</option>`).join('')}
+      </select>`;
+    container.appendChild(wrap);
+  });
+
+  // Audio — if multiple AdaptationSets (languages), one dropdown to pick among them
+  // If single AdaptationSet with multiple reps, show quality dropdown
+  if (audioSets.length > 1) {
+    const defIdx = defaultAudioAdaptIdx(audioSets);
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<label>Audio track</label>
+      <select id="selAudioAdapt">
+        ${audioSets.map(a => {
+          const best = a.representations.reduce((x, b) => b.bandwidth > x.bandwidth ? b : x);
+          const lbl = `${a.lang || 'track ' + a.idx} · ${(best.bandwidth / 1000).toFixed(0)} kbps`;
+          return `<option value="${a.idx}"${a.idx === defIdx ? ' selected' : ''}>${lbl}</option>`;
+        }).join('')}
+      </select>`;
+    container.appendChild(wrap);
+  } else if (audioSets.length === 1 && audioSets[0].representations.length > 1) {
+    const adaptSet = audioSets[0];
+    const sorted = [...adaptSet.representations].sort((a, b) => b.bandwidth - a.bandwidth);
+    const best = bestRepId(adaptSet);
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `<label>Audio quality${adaptSet.lang ? ' (' + adaptSet.lang + ')' : ''}</label>
+      <select id="selAudio_${adaptSet.idx}">
+        ${sorted.map(r => `<option value="${r.id}"${r.id === best ? ' selected' : ''}>${r.label}</option>`).join('')}
+      </select>`;
+    container.appendChild(wrap);
+  }
+
+  // Subtitle tracks from MPD — checkboxes
+  textSets.forEach(adaptSet => {
+    const wrap = document.createElement('div');
+    const lbl = `Subtitles${adaptSet.lang ? ' (' + adaptSet.lang + ')' : ''} from MPD`;
+    wrap.innerHTML = `<label class="check-label" style="margin-top:0.2rem">
+      <input type="checkbox" class="stream-check" data-adapt-idx="${adaptSet.idx}" checked>
+      ${lbl}
+    </label>`;
+    container.appendChild(wrap);
+  });
+
+  if (!videoSets.length && !audioSets.length && !textSets.length) {
+    container.innerHTML = '<p class="hint">No selectable streams found in this MPD.</p>';
+  }
+}
+
+// ── Gather selected tracks for download ───────────────────────────────────
+function getSelectedTracks() {
+  const result = [];
+  const videoSets = parsedAdaptSets.filter(a => a.type === 'video');
+  const audioSets = parsedAdaptSets.filter(a => a.type === 'audio');
+  const textSets  = parsedAdaptSets.filter(a => a.type === 'text');
+  const totalTracks = videoSets.length + audioSets.length + textSets.length;
+
+  videoSets.forEach(adaptSet => {
+    const sel = $(`selVideo_${adaptSet.idx}`);
+    const repId = sel ? sel.value : bestRepId(adaptSet);
+    result.push({ adaptSet, repId, trackLabel: 'video', ext: 'mp4' });
+  });
+
+  if (audioSets.length > 1) {
+    const selAdapt = $('selAudioAdapt');
+    const chosenIdx = selAdapt ? parseInt(selAdapt.value) : defaultAudioAdaptIdx(audioSets);
+    const adaptSet = parsedAdaptSets.find(a => a.idx === chosenIdx) || audioSets[0];
+    result.push({ adaptSet, repId: bestRepId(adaptSet), trackLabel: 'audio', ext: 'm4a' });
+  } else if (audioSets.length === 1) {
+    const adaptSet = audioSets[0];
+    const sel = $(`selAudio_${adaptSet.idx}`);
+    const repId = sel ? sel.value : bestRepId(adaptSet);
+    result.push({ adaptSet, repId, trackLabel: 'audio', ext: 'm4a' });
+  }
+
+  textSets.forEach(adaptSet => {
+    const chk = document.querySelector(`.stream-check[data-adapt-idx="${adaptSet.idx}"]`);
+    if (chk?.checked) {
+      const ext = adaptSet.mimeType.includes('vtt') ? 'vtt' : adaptSet.mimeType.includes('ttml') ? 'ttml' : 'txt';
+      result.push({ adaptSet, repId: adaptSet.representations[0]?.id, trackLabel: `subtitle_${adaptSet.lang || adaptSet.idx}`, ext });
+    }
+  });
+
+  return { tracks: result, multiTrack: totalTracks > 1 };
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function parseDuration(iso) {
+  if (!iso) return 0;
+  const m = iso.match(/PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?/);
+  if (!m) return 0;
+  return (parseFloat(m[1] || 0) * 3600) + (parseFloat(m[2] || 0) * 60) + parseFloat(m[3] || 0);
+}
+
+function guessFilename(mpdUrl) {
+  if (!mpdUrl) return '';
+  const m = mpdUrl.match(/\/([a-f0-9-]{20,})/i);
+  return m ? m[1] : '';
+}
+
+async function concatAndSave(chunks, mimeType, filename) {
+  const total = chunks.reduce((s, b) => s + b.byteLength, 0);
+  const blob = new Blob(chunks, { type: mimeType });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  return total;
+}
+
+// ── Fetch & Parse ──────────────────────────────────────────────────────────
+$('btnFetch').addEventListener('click', async () => {
+  $('log').innerHTML = '';
+  parsedAdaptSets = [];
+  $('btnDownload').disabled = true;
+
+  const url = $('mpdUrl').value.trim();
+  const xml = $('mpdXml').value.trim();
+  if (!url && !xml) { status('Provide a URL or paste MPD XML.'); return; }
+
+  status('Parsing…');
+  try {
+    let xmlText = xml;
+    if (!xmlText && url) {
+      log('Fetching MPD from ' + url);
+      const headers = parseHeaders($('headersInput').value);
+      const resp = await fetchWithHeaders(url, headers);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      xmlText = await resp.text();
+    }
+
+    parsedAdaptSets = parseAllTracks(xmlText, url);
+    populateStreamSelectors();
+
+    if (parsedAdaptSets.some(a => !a.base)) {
+      log('Warning: no base URL found — segment URLs will be relative and likely broken. Fill in the MPD URL field or ensure the MPD contains a <BaseURL> element.', 'err');
+    }
+
+    if (!$('filename').value.trim()) $('filename').value = guessFilename(url);
+
+    const totalSegs = parsedAdaptSets.reduce((s, a) => s + a.representations[0] ? 1 : 0, 0);
+    parsedAdaptSets.forEach(a => {
+      const reps = a.representations.length;
+      log(`[${a.type}${a.lang ? '/' + a.lang : ''}] ${reps} representation${reps > 1 ? 's' : ''}`);
+    });
+    log(`Parsed ${parsedAdaptSets.length} adaptation set(s).`, 'ok');
+    status(`Ready — ${parsedAdaptSets.length} track(s)`);
+    $('btnDownload').disabled = false;
+  } catch (e) {
+    log('Error: ' + e.message, 'err');
+    status('Parse failed.');
+  }
+});
+
+// ── Download ───────────────────────────────────────────────────────────────
+$('btnDownload').addEventListener('click', async () => {
+  if (!parsedAdaptSets.length) return;
+  $('btnDownload').disabled = true;
+  $('btnFetch').disabled = true;
+  $('progressWrap').style.display = 'block';
+  $('progressBar').style.width = '0%';
+  $('log').innerHTML = '';
+
+  const headers  = parseHeaders($('headersInput').value);
+  const baseName = ($('filename').value.trim() || 'output').replace(/\.[^.]+$/, '');
+  const { tracks, multiTrack } = getSelectedTracks();
+
+  // Count total segments across all tracks
+  const allSegments = tracks.map(t => ({ ...t, segments: buildSegments(t.adaptSet, t.repId) }));
+  const totalSegs = allSegments.reduce((s, t) => s + t.segments.length, 0);
+  let globalDone = 0;
+
+  for (const track of allSegments) {
+    const suffix = multiTrack ? `_${track.trackLabel}` : '';
+    const outName = `${baseName}${suffix}.${track.ext}`;
+    log(`— ${track.trackLabel} → ${outName} (${track.segments.length} segments)`);
+
+    const chunks = [];
+    let corsBlocked = false;
+    for (const seg of track.segments) {
+      if (corsBlocked) { globalDone++; continue; }
+      try {
+        const resp = await fetchWithHeaders(seg.url, headers);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const buf = await resp.arrayBuffer();
+        chunks.push(buf);
+        log(`✓ [${track.trackLabel}] ${seg.label} (${(buf.byteLength / 1024).toFixed(1)} KB)`);
+      } catch (e) {
+        if (isCorsError(e)) {
+          corsBlocked = true;
+          log(`✗ CORS error — the server at ${new URL(seg.url).origin} blocks browser requests. Set a CORS proxy prefix in More options, or install a browser CORS extension.`, 'err');
+        } else {
+          log(`✗ [${track.trackLabel}] ${seg.label}: ${e.message}`, 'err');
+        }
+      }
+      globalDone++;
+      $('progressBar').style.width = Math.round((globalDone / totalSegs) * 100) + '%';
+      status(`${globalDone} / ${totalSegs}`);
+    }
+
+    const savedBytes = await concatAndSave(chunks, track.adaptSet.mimeType || 'video/mp4', outName);
+    log(`Saved ${outName} — ${(savedBytes / 1048576).toFixed(2)} MB`, 'ok');
+  }
+
+  // External subtitle URL
+  const subUrl = $('subtitleUrl').value.trim();
+  if (subUrl) {
+    try {
+      log(`— Fetching subtitle from ${subUrl}`);
+      const resp = await fetchWithHeaders(subUrl, headers);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const buf = await resp.arrayBuffer();
+      const ext = subUrl.split('?')[0].split('.').pop() || 'vtt';
+      const subName = `${baseName}_subtitle.${ext}`;
+      await concatAndSave([buf], 'text/plain', subName);
+      log(`Saved ${subName}`, 'ok');
+    } catch (e) {
+      log(`✗ Subtitle: ${e.message}`, 'err');
+    }
+  }
+
+  // ffmpeg mux hint when both video and audio were downloaded
+  const savedTracks = allSegments.filter(t => t.trackLabel === 'video' || t.trackLabel === 'audio');
+  if (savedTracks.some(t => t.trackLabel === 'video') && savedTracks.some(t => t.trackLabel === 'audio')) {
+    const vFile = `${baseName}_video.mp4`;
+    const aFile = `${baseName}_audio.m4a`;
+    const outFile = `${baseName}.mp4`;
+    log(`ffmpeg -i "${vFile}" -i "${aFile}" -c copy "${outFile}"`, 'cmd');
+  }
+
+  status('Complete.');
+  $('btnFetch').disabled = false;
+  $('btnDownload').disabled = false;
+});
+</script>
+</body>
+</html>
