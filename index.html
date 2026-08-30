@@ -36,6 +36,7 @@
   }
   button:hover { background: #1d4ed8; }
   button:disabled { background: #333; color: #666; cursor: not-allowed; }
+  #btnUseLocalProxy:hover, #btnUseVercelProxy:hover { background: #333; }
   .btn-row { display: flex; gap: 0.8rem; margin-top: 1rem; flex-wrap: wrap; align-items: center; }
   #status { font-size: 0.85rem; color: #888; }
   .progress-wrap { background: #111; border-radius: 4px; height: 6px; overflow: hidden; margin-top: 0.8rem; }
@@ -76,7 +77,7 @@
     <div class="col">
       <div>
         <label>MPD URL</label>
-        <input type="text" id="mpdUrl" placeholder="https://example.com/manifest.mpd" />
+        <input type="text" id="mpdUrl" placeholder="https://example.com/manifest.mpd" autocomplete="off" />
       </div>
       <div>
         <label>Local MPD file</label>
@@ -124,6 +125,10 @@
       <div>
         <label>CORS proxy prefix</label>
         <input type="text" id="corsProxy" placeholder="http://localhost:8079/  or  https://your-app.vercel.app/api/proxy?url=" />
+        <div style="display:flex; gap:0.5rem; margin-top:0.5rem">
+          <button type="button" id="btnUseLocalProxy" style="background:#222; font-size:0.78rem; padding:0.4rem 0.8rem">Use local proxy.js</button>
+          <button type="button" id="btnUseVercelProxy" style="background:#222; font-size:0.78rem; padding:0.4rem 0.8rem">Use this site's proxy</button>
+        </div>
         <p style="font-size:0.78rem;color:#444;margin-top:0.4rem;line-height:1.7">
           If downloads fail with a CORS error, the remote server is blocking browser requests.
           Two ways to fix it:<br><br>
@@ -190,6 +195,20 @@ function loadFile(file) {
 $('btnMore').addEventListener('click', () => {
   const open = $('moreBody').classList.toggle('open');
   $('btnMore').classList.toggle('open', open);
+});
+
+// ── Proxy quick-fill buttons ───────────────────────────────────────────────
+$('btnUseLocalProxy').addEventListener('click', () => {
+  $('corsProxy').value = 'http://localhost:8079/';
+});
+$('btnUseVercelProxy').addEventListener('click', () => {
+  // Uses whatever origin this page is actually served from — works after renames/redeploys too.
+  const isFileProtocol = window.location.protocol === 'file:';
+  if (isFileProtocol) {
+    log('This page is open as a local file, so "this site" has no proxy — deploy it (e.g. to Vercel) first, or use the local proxy.js button instead.', 'err');
+    return;
+  }
+  $('corsProxy').value = `${window.location.origin}/api/proxy?url=`;
 });
 
 // ── Logging / status ───────────────────────────────────────────────────────
@@ -489,6 +508,12 @@ $('btnFetch').addEventListener('click', async () => {
   const url = $('mpdUrl').value.trim();
   const xml = $('mpdXml').value.trim();
   if (!url && !xml) { status('Provide a URL or paste MPD XML.'); return; }
+
+  if (url.startsWith('file://')) {
+    log('Error: "' + url + '" is a local file path. This page is hosted online and cannot read local files directly — use the "Local MPD file" picker instead, or clear the MPD URL field.', 'err');
+    status('Invalid URL.');
+    return;
+  }
 
   status('Parsing…');
   try {
