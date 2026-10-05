@@ -24,25 +24,21 @@ Click **More options** to reveal:
 - **CORS proxy prefix** — see below
 - **Request headers** — JSON or curl (`-H "..."`) format, needed if the source requires auth headers or cookies
 
+## Batch download
+
+Open the collapsible **Batch download** card below the main form to queue several MPDs:
+
+- Paste one MPD URL per line (`# comment` lines are ignored). Add `| custom name` after a URL to override its name.
+- Or import a **HAR file** (browser dev tools → Network → *Save all as HAR*): every request URL is read from `log.entries[].request.url` (the same as `jq -r ".log.entries[].request.url"`) and added to the list. By default only `.mpd` links are kept; untick the filter to import everything. Duplicates are skipped.
+- Output names are generated as **prefix + number** (e.g. `show_e01`, `show_e02`), with a configurable start number and digit count.
+- The queue shows each item's status (pending / running / done / failed). Items download one after another using the default selection (best video, Czech/English/first audio, all MPD subtitles).
+- **Stop** halts after the current segment; pressing **Download all** again only retries items that aren't done. The CORS proxy and request headers from *More options* are reused.
+
 ## CORS errors
 
 Browsers block cross-origin requests unless the remote server explicitly allows them. If downloads fail with a CORS error, you have two options:
 
-### Option 1 — local proxy
-
-```bash
-node proxy.js
-```
-
-Leave it running, then set the CORS proxy prefix in the app to:
-
-```
-http://localhost:8079/
-```
-
-No dependencies — just Node.js.
-
-### Option 2 — deployed proxy (Vercel)
+### Option 1 — deployed proxy (Vercel)
 
 Deploy this project to [Vercel](https://vercel.com) (free Hobby tier is enough):
 
@@ -59,7 +55,7 @@ https://your-app.vercel.app/api/proxy?url=
 
 This works from any device without needing a terminal running locally.
 
-### Option 3 — browser extension
+### Option 2 — browser extension
 
 Install a CORS-disabling extension (e.g. *CORS Everywhere* for Firefox, *Allow CORS* for Chrome). No proxy field needed.
 
@@ -68,8 +64,7 @@ Install a CORS-disabling extension (e.g. *CORS Everywhere* for Firefox, *Allow C
 | File | Purpose |
 |---|---|
 | `index.html` | The app — parsing, stream selection, and download logic |
-| `proxy.js` | Standalone Node CORS proxy for local use |
-| `api/proxy.js` | Same proxy, packaged as a Vercel serverless function |
+| `api/proxy.js` | CORS proxy, packaged as a Vercel serverless function |
 
 ## Limitations
 
